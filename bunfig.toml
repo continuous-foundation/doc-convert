@@ -1,0 +1,7 @@
+[install]
+# Prefer bun.lock as the canonical lockfile for development.
+saveTextLockfile = true
+
+[run]
+# Run TypeScript directly without a separate compile step during dev.
+bun = true

@@ -1,0 +1,52 @@
+import path from 'node:path';
+import type { Command } from 'commander';
+import { buildRunContext, parseConvertOptions, resolveInputPath } from '../engine/context.js';
+import { listRulesetSteps, runRuleset } from '../engine/runner.js';
+import { getRuleset, inferRulesetId } from '../rulesets/index.js';
+
+export function addConvertCommand(program: Command): void {
+  program
+    .argument('[input]', 'Input file (.md with optional --jupytext, or .docx)')
+    .option('--jupytext', 'Treat input as Jupytext-exported markdown (full pipeline)')
+    .option('--workdir <path>', 'Output workdir name or path', '_improved')
+    .option('--project-root <path>', 'Article repo root for scripts and assets (default: input directory)')
+    .option('-d, --dry-run', 'Do not write files')
+    .option('--orcid-lookup', 'Enable ORCID enrichment (extract-jupytext-frontmatter step)')
+    .option('--ror-lookup', 'Enable ROR affiliation lookups (default on)')
+    .option('--no-ror-lookup', 'Disable ROR affiliation lookups')
+    .option('--ror-min-score <float>', 'ROR match threshold 0..1', '0.8')
+    .option('--list-steps', 'Print planned steps for this input and exit')
+    .action(async (input: string | undefined, opts) => {
+      if (!input) {
+        throw new Error('Missing required argument: input file path');
+      }
+
+      const inputAbs = resolveInputPath(input);
+      const options = parseConvertOptions({
+        dryRun: opts.dryRun,
+        workdir: opts.workdir,
+        orcidLookup: opts.orcidLookup,
+        rorLookup: opts.rorLookup,
+        noRorLookup: opts.noRorLookup,
+        rorMinScore: opts.rorMinScore,
+        projectRoot: opts.projectRoot,
+      });
+
+      const rulesetId = inferRulesetId(inputAbs, Boolean(opts.jupytext));
+      const ruleset = getRuleset(rulesetId);
+      const ctx = buildRunContext(rulesetId, inputAbs, options);
+
+      if (opts.listSteps) {
+        listRulesetSteps(ruleset, ctx);
+        return;
+      }
+
+      // DOCX: project root is dirname of docx unless overridden
+      if (rulesetId === 'docx' && !opts.projectRoot) {
+        ctx.projectRoot = path.dirname(inputAbs);
+        ctx.scriptsDir = path.join(ctx.projectRoot, 'script');
+      }
+
+      await runRuleset(ruleset, ctx);
+    });
+}
