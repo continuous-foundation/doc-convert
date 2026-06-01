@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import version from './version.js';
 import { addConvertCommand } from './commands/convert.js';
+import { handleCliFailure } from './cli/errors.js';
+import version from './version.js';
 
 (process as NodeJS.Process & { noDeprecation?: boolean }).noDeprecation = true;
 
@@ -10,8 +11,16 @@ program.name('doc-convert');
 program.description(
   'Convert and improve documents into a MyST-ready project (myst.yml + article.md).',
 );
+program.showHelpAfterError(true);
 
 addConvertCommand(program);
 
 program.version(`v${version}`, '-v, --version', 'Print the current version of doc-convert');
-program.parse(process.argv);
+
+program.exitOverride();
+
+async function main(): Promise<void> {
+  await program.parseAsync(process.argv);
+}
+
+main().catch(handleCliFailure);

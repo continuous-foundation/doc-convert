@@ -1,12 +1,13 @@
 import path from 'node:path';
 import type { Command } from 'commander';
-import { buildRunContext, parseConvertOptions, resolveInputPath } from '../engine/context.js';
+import { CliError } from '../cli/errors.js';
+import { buildRunContext, fileExists, parseConvertOptions, resolveInputPath } from '../engine/context.js';
 import { listRulesetSteps, runRuleset } from '../engine/runner.js';
 import { getRuleset, inferRulesetId } from '../rulesets/index.js';
 
 export function addConvertCommand(program: Command): void {
   program
-    .argument('[input]', 'Input file (.md with optional --jupytext, or .docx)')
+    .argument('<input>', 'Input file (.md with optional --jupytext, or .docx)')
     .option('--jupytext', 'Treat input as Jupytext-exported markdown (full pipeline)')
     .option('--workdir <path>', 'Output workdir name or path', '_improved')
     .option('--project-root <path>', 'Article repo root for scripts and assets (default: input directory)')
@@ -16,12 +17,22 @@ export function addConvertCommand(program: Command): void {
     .option('--no-ror-lookup', 'Disable ROR affiliation lookups')
     .option('--ror-min-score <float>', 'ROR match threshold 0..1', '0.8')
     .option('--list-steps', 'Print planned steps for this input and exit')
-    .action(async (input: string | undefined, opts) => {
-      if (!input) {
-        throw new Error('Missing required argument: input file path');
+    .addHelpText(
+      'after',
+      `
+Examples:
+  $ doc-convert manuscript.docx
+  $ doc-convert manuscript.docx --project-root ./article --workdir _improved
+  $ doc-convert article.md --jupytext
+  $ doc-convert manuscript.docx --list-steps
+`,
+    )
+    .action(async (input: string, opts) => {
+      const inputAbs = resolveInputPath(input);
+      if (!fileExists(inputAbs)) {
+        throw new CliError(`Input file not found: ${inputAbs}`);
       }
 
-      const inputAbs = resolveInputPath(input);
       const options = parseConvertOptions({
         dryRun: opts.dryRun,
         workdir: opts.workdir,
