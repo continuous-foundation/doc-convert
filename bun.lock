@@ -11,7 +11,6 @@
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "^24.0.0",
-        "mystmd": "^1.9.1",
         "typescript": "^5.8.0",
       },
     },
@@ -24,8 +23,6 @@
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
     "commander": ["commander@14.0.3", "", {}, "sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw=="],
-
-    "mystmd": ["mystmd@1.9.1", "", { "bin": { "myst": "dist/myst.cjs" } }, "sha512-ya8u48V7Hn2EtE6DJTEtrWCZEnpIboiN5Ed6lDlvMikiSk8NHUxpocR2okf3BF8vNlC7Auj5s3T/Ulj3taN6bQ=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

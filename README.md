@@ -48,12 +48,6 @@ bun ../../doc-convert/src/index.ts manuscript.docx --list-steps   # preview afte
 
 Full author guide, CLI reference, and pipeline details: **[docs/](docs/)** ([guide](docs/guide/index.md), [reference](docs/reference/cli.md)).
 
-Preview the docs site locally:
-
-```bash
-bun run docs:start
-```
-
 ## License
 
 MIT — see [LICENSE](LICENSE).

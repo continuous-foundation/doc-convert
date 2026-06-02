@@ -174,23 +174,7 @@ rm -rf docx-examples/jay/_improved
 
 ---
 
-## Preview the docs site
-
-This guide is part of a **MyST Markdown website** under `doc-convert/docs/`. From the package directory:
-
-```bash
-cd doc-convert
-bun install          # installs mystmd (first time)
-bun run docs:start   # live preview at http://localhost:3000
-```
-
-Build static HTML (output in `doc-convert/docs/_build/`):
-
-```bash
-bun run docs:build
-```
-
-### Preview a converted manuscript
+## Preview a converted manuscript
 
 After conversion, each `_improved/` folder is its own MyST project. Preview from the workdir:
 
