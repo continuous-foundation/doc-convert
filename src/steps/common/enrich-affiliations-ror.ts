@@ -51,31 +51,150 @@ function normalizeOrgName(s: string): string {
     .trim();
 }
 
-async function searchRor(query: string): Promise<RorMatch | null> {
+/** Derive short institution names from verbose DOCX affiliation strings. */
+function extractInstitutionQueries(affiliation: string): string[] {
+  const cleaned = affiliation.replace(/\\+/g, ' ').replace(/\s+/g, ' ').trim();
+  const segments = cleaned
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const queries: string[] = [];
+
+  for (const seg of segments) {
+    const uniMatches = [
+      ...seg.matchAll(/\b([^,;]+(?:University|Institute|Universit[eé]|Universidad)[^,;]*)/gi),
+    ].map((m) => m[1].trim());
+    if (uniMatches.length) {
+      queries.push(uniMatches[uniMatches.length - 1]);
+      continue;
+    }
+
+    const otherMatches = [
+      ...seg.matchAll(
+        /\b([^,;]+(?:National Laboratory|Hospital|Academy|Laboratory|Laboratories)[^,;]*)/gi,
+      ),
+    ].map((m) => m[1].trim());
+    if (otherMatches.length) {
+      queries.push(otherMatches[otherMatches.length - 1]);
+    }
+  }
+
+  return [...new Set(queries.filter((q) => q.length >= 4))];
+}
+
+function computeMatchScore(query: string, orgName: string): number {
+  const a = normalizeOrgName(query);
+  const b = normalizeOrgName(orgName);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) {
+    const shorter = Math.min(a.length, b.length);
+    const longer = Math.max(a.length, b.length);
+    return 0.75 + 0.2 * (shorter / longer);
+  }
+
+  const at = new Set(a.split(/\s+/).filter((t) => t.length > 2));
+  const bt = new Set(b.split(/\s+/).filter((t) => t.length > 2));
+  if (!at.size || !bt.size) return 0;
+
+  let overlap = 0;
+  for (const t of at) {
+    if (bt.has(t)) overlap++;
+  }
+  return overlap / (at.size + bt.size - overlap);
+}
+
+function parseRorItem(item: unknown): { id: string; name: string } | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+
+  const legacyOrg = record.organization;
+  if (legacyOrg && typeof legacyOrg === 'object') {
+    const org = legacyOrg as Record<string, unknown>;
+    const id = typeof org.id === 'string' ? org.id : null;
+    const name = typeof org.name === 'string' ? org.name : null;
+    if (id && name) return { id, name };
+  }
+
+  const id = typeof record.id === 'string' ? record.id : null;
+  const names = Array.isArray(record.names) ? record.names : [];
+  let name: string | null = null;
+
+  for (const entry of names) {
+    if (!entry || typeof entry !== 'object') continue;
+    const types = Array.isArray((entry as { types?: unknown }).types)
+      ? ((entry as { types: string[] }).types ?? [])
+      : [];
+    const value = (entry as { value?: unknown }).value;
+    if (types.includes('ror_display') && typeof value === 'string' && value) {
+      name = value;
+      break;
+    }
+  }
+
+  if (!name) {
+    for (const entry of names) {
+      if (!entry || typeof entry !== 'object') continue;
+      const value = (entry as { value?: unknown }).value;
+      if (typeof value === 'string' && value) {
+        name = value;
+        break;
+      }
+    }
+  }
+
+  return id && name ? { id, name } : null;
+}
+
+async function searchRorQuery(query: string): Promise<RorMatch | null> {
   const url = `https://api.ror.org/organizations?query=${encodeURIComponent(query)}`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;
-    const json = (await res.json()) as {
-      items?: Array<{
-        score?: number;
-        organization?: { id?: string; name?: string };
-      }>;
-    };
+    const json = (await res.json()) as { items?: unknown[] };
     const items = Array.isArray(json?.items) ? json.items : [];
     if (!items.length) return null;
 
-    items.sort((a, b) => (b?.score ?? 0) - (a?.score ?? 0));
-    const top = items[0];
-    const score = typeof top?.score === 'number' ? top.score : 0;
-    const org = top?.organization;
-    const id = typeof org?.id === 'string' ? org.id : null;
-    const name = typeof org?.name === 'string' ? org.name : null;
-    if (!id || !name) return null;
-    return { id, name, score };
+    let best: RorMatch | null = null;
+    for (const item of items.slice(0, 5)) {
+      const parsed = parseRorItem(item);
+      if (!parsed) continue;
+
+      const apiScore =
+        item && typeof item === 'object' && typeof (item as { score?: unknown }).score === 'number'
+          ? ((item as { score: number }).score ?? 0)
+          : 0;
+      const score = apiScore > 0 ? apiScore : computeMatchScore(query, parsed.name);
+
+      if (!best || score > best.score) {
+        best = { id: parsed.id, name: parsed.name, score };
+      }
+    }
+
+    return best;
   } catch {
     return null;
   }
+}
+
+async function resolveAffiliationRor(
+  affiliation: string,
+  minScore: number,
+): Promise<RorMatch | null> {
+  const queries = extractInstitutionQueries(affiliation);
+  if (!queries.length) queries.push(affiliation);
+
+  let best: (RorMatch & { query: string }) | null = null;
+  for (const query of queries) {
+    const match = await searchRorQuery(query);
+    if (!match) continue;
+    if (!best || match.score > best.score) {
+      best = { ...match, query };
+    }
+  }
+
+  if (!best) return null;
+  return acceptRorMatch(best.query, best, minScore) ? best : null;
 }
 
 function acceptRorMatch(original: string, match: RorMatch, minScore: number): boolean {
@@ -166,12 +285,7 @@ async function enrichMystAuthorsAffiliations(
         if (!opts.rorLookup) {
           resolved = null;
         } else {
-          const match = await searchRor(affiliation);
-          if (match && acceptRorMatch(affiliation, match, opts.minScore)) {
-            resolved = match;
-          } else {
-            resolved = null;
-          }
+          resolved = await resolveAffiliationRor(affiliation, opts.minScore);
         }
         cache.set(affiliation, resolved);
       }
