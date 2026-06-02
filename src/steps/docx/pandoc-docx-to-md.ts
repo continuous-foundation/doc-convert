@@ -36,7 +36,17 @@ export const pandocDocxToMdStep: PipelineStep = {
       fs.mkdirSync(workdirAbs, { recursive: true });
     }
 
-    const args = ['-f', 'docx', '-t', 'markdown', '-o', outMd, inputAbs];
+    // Extract embedded images to ./media/ so paths like media/image1.jpeg resolve in the workdir.
+    const args = [
+      '-f',
+      'docx',
+      '-t',
+      'markdown',
+      '--extract-media=.',
+      '-o',
+      outMd,
+      inputAbs,
+    ];
     console.log(`$ pandoc ${args.join(' ')}`);
 
     if (options.dryRun) {
@@ -44,7 +54,11 @@ export const pandocDocxToMdStep: PipelineStep = {
       return;
     }
 
-    const res = spawnSync('pandoc', args, { stdio: 'inherit', encoding: 'utf8' });
+    const res = spawnSync('pandoc', args, {
+      cwd: workdirAbs,
+      stdio: 'inherit',
+      encoding: 'utf8',
+    });
     if (res.error) throw res.error;
     if (res.status !== 0) {
       throw new Error(`pandoc failed with exit code ${res.status ?? 1}`);
