@@ -1,7 +1,6 @@
 import path from 'node:path';
 import type { RunContext } from './types.js';
 
-/** Map pipeline RunContext to step runner options (cwd = workdir). */
 export function stepOpts(ctx: RunContext) {
   return {
     cwd: ctx.workdirAbs,

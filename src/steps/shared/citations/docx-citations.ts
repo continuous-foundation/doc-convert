@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { logStep } from '../../../engine/step-log.js';
 import { ensureMystBibliography } from '../myst-bibliography.js';
 import { resolveProjectConfigPath } from '../myst-config.js';
 import {
@@ -417,17 +418,11 @@ export async function improveDocxCitations(options: {
     }
   }
 
-  process.stdout.write(
-    [
-      'Done.',
-      `- Dialect: ${dialect}`,
-      `- References: ${refs.length} entries → references.bib`,
-      `- Rewrote inline citations in article.md`,
-      options.dryRun ? '(dry-run: no files written)' : null,
-    ]
-      .filter(Boolean)
-      .join('\n') + '\n',
-  );
+  logStep([
+    'Done.',
+    `${dialect}: ${refs.length} references → references.bib`,
+    options.dryRun ? '(dry-run)' : null,
+  ]);
 
   return { dialect, references: refs.length, replacements: true };
 }

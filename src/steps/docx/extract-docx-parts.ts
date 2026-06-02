@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
+import { logStep } from '../../engine/step-log.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
+import { stripMarkdownInline } from '../shared/markdown-inline.js';
+import { closeMystProject, openMystProject, setProjectKeywords } from '../shared/myst-yaml-project.js';
 import { resolveProjectConfigPath } from '../shared/myst-config.js';
 import {
   applyPartsToFrontmatter,
@@ -10,34 +14,16 @@ import {
   removeBodyLineIntervals,
   splitArticleFrontmatter,
 } from '../shared/myst-parts.js';
+import { yamlQuote } from '../shared/yaml-scalar.js';
 
 const DEFAULT_ARTICLE = 'article.md';
 const DEFAULT_MYST = 'myst.yml';
 
-function yamlQuote(s: string): string {
-  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function stripMarkdownInline(s: string): string {
-  return s
-    .replace(/\*\*/g, '')
-    .replace(/\[(.+?)\]\([^\)]*\)/g, '$1')
-    .replace(/\{[^}]+\}/g, '')
-    .replace(/\^+/g, '')
-    .trim();
-}
-
 interface PartSpec {
-  /** MyST part key (known or custom). */
   key: string;
-  /** Match the heading line (after trim). */
   heading: RegExp;
 }
 
-/**
- * DOCX/Pandoc heading patterns → MyST document parts.
- * Order matters: more specific patterns first.
- */
 const DOCX_PART_SPECS: PartSpec[] = [
   { key: 'abstract', heading: /^(?:#{1,6}\s+)?(?:\*\*)?ABSTRACT(?:\*\*)?\s*$/i },
   { key: 'abstract', heading: /^\*\*Abstract:\*\*\s*/i },
@@ -45,9 +31,9 @@ const DOCX_PART_SPECS: PartSpec[] = [
   { key: 'highlights', heading: /^\*\*Highlights\*\*\s*$/i },
   {
     key: 'acknowledgments',
-    heading: /^(?:#{1,6}\s+)?(?:\[)?(?:\*\*)?Acknowledg(?:e?ments?|e?ments?)(?:\*\*)?(?:\]\{\.underline\})?\s*:?\s*$/i,
+    heading: /^(?:#{1,6}\s+)?(?:\[)?(?:\*\*)?Acknowledgments?(?:\*\*)?(?:\]\{\.underline\})?\s*:?\s*$/i,
   },
-  { key: 'acknowledgments', heading: /^\*\*Acknowledg(?:e?ments?|e?ments?):\*\*\s*/i },
+  { key: 'acknowledgments', heading: /^\*\*Acknowledgments?:\*\*\s*/i },
 ];
 
 interface PartRegion {
@@ -61,15 +47,6 @@ interface RunExtractDocxPartsOptions {
   article?: string;
   dryRun: boolean;
   cwd: string;
-}
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
 }
 
 function stripInlineHeadingLabel(line: string, labelRe: RegExp): string {
@@ -216,32 +193,9 @@ function applyKeywordsToFrontmatter(fmLines: string[], keywords: string[]): void
 
 function updateMystKeywords(mystYaml: string, keywords: string[]): string {
   if (!keywords.length) return mystYaml;
-  const lines = mystYaml.split('\n');
-  const projectIdx = lines.findIndex((l) => /^\s*project:\s*$/.test(l));
-  if (projectIdx === -1) return mystYaml;
-
-  let projectEnd = lines.length;
-  for (let i = projectIdx + 1; i < lines.length; i++) {
-    if (/^\S/.test(lines[i])) {
-      projectEnd = i;
-      break;
-    }
-  }
-
-  const projectLines = lines.slice(projectIdx + 1, projectEnd);
-  const kwIdx = projectLines.findIndex((l) => /^\s{2}keywords:\s*$/.test(l));
-  const kwBlock = ['  keywords:', ...keywords.map((k) => `    - ${yamlQuote(k)}`)];
-  if (kwIdx >= 0) {
-    let end = kwIdx + 1;
-    while (end < projectLines.length && /^\s{4}-\s+/.test(projectLines[end])) end++;
-    projectLines.splice(kwIdx, end - kwIdx, ...kwBlock);
-  } else {
-    projectLines.unshift(...kwBlock);
-  }
-
-  return [...lines.slice(0, projectIdx + 1), ...projectLines, ...lines.slice(projectEnd)].join(
-    '\n',
-  );
+  const block = openMystProject(mystYaml);
+  setProjectKeywords(block.projectLines, keywords);
+  return closeMystProject(block);
 }
 
 async function extractDocxParts(options: RunExtractDocxPartsOptions): Promise<void> {
@@ -296,26 +250,18 @@ async function extractDocxParts(options: RunExtractDocxPartsOptions): Promise<vo
   if (changed) writeUtf8(articlePath, newMd, options.dryRun);
   if (mystChanged) writeUtf8(mystPath, newMystYaml, options.dryRun);
 
-  process.stdout.write(
-    [
-      'Done.',
-      `- Article: ${path.relative(options.cwd, articlePath)}`,
-      `- Extracted parts: ${Object.keys(rawParts).join(', ') || '(none)'}`,
-      keywordHit ? `- Keywords: ${keywordHit.keywords.length}` : null,
-      changed ? `- Updated: ${path.relative(options.cwd, articlePath)}` : '- No changes needed',
-      mystChanged ? `- Updated: ${path.relative(options.cwd, mystPath)}` : null,
-      options.dryRun ? '(dry-run: no files written)' : null,
-    ]
-      .filter(Boolean)
-      .join('\n') + '\n',
-  );
+  logStep([
+    'Done.',
+    `parts: ${Object.keys(rawParts).join(', ') || '(none)'}`,
+    keywordHit ? `keywords: ${keywordHit.keywords.length}` : null,
+    changed || mystChanged ? 'updated' : 'no changes',
+    options.dryRun ? '(dry-run)' : null,
+  ]);
 }
 
-/** Extract abstract, acknowledgments, highlights, etc. from DOCX markdown into page `parts:` frontmatter. */
 export const extractDocxPartsStep: PipelineStep = {
   id: 'extractDocxParts',
   label: 'Extract DOCX document parts → page frontmatter',
-  inputs: ['markdown', 'frontmatter'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await extractDocxParts({

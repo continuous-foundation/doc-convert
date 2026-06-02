@@ -1,7 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
+import { logStep } from '../../engine/step-log.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { whenReferencesBib } from '../shared/when.js';
 
 
@@ -21,26 +22,6 @@ interface BibEntry {
   end: number;
 }
 
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
-
-/**
- * Parse a BibTeX file into entries.
- *
- * This parser is intentionally minimal and aimed at the `.bib` shape produced by
- * `extract-citations-and-bib.ts`:
- * - entries look like `@type{key, ...fields... }`
- * - fields are typically `name = {value},`
- * - braces inside values are escaped as `\{` and `\}`, so nesting is simple.
- *
- * It will work on many BibTeX files, but it is not a fully compliant BibTeX parser.
- */
 function parseBibtexEntries(bibText: string): BibEntry[] {
   const entries: BibEntry[] = [];
 
@@ -93,7 +74,6 @@ function parseBibtexEntries(bibText: string): BibEntry[] {
   return entries;
 }
 
-/** Parse `name = {value}` fields from a BibTeX entry (best-effort). */
 function parseBibtexFields(entryRaw: string): Record<string, string> {
   const fields: Record<string, string> = {};
 
@@ -107,7 +87,6 @@ function parseBibtexFields(entryRaw: string): Record<string, string> {
   return fields;
 }
 
-/** Build a citation appearance order map from `article.md`. */
 function getCitationFirstUsePositions(articleMd: string): Map<string, number> {
   const pos = new Map<string, number>();
   const re = /@([A-Za-z0-9_:-]+)/g;
@@ -257,10 +236,6 @@ function rewriteMarkdownCitations(articleMd: string, keyMap: Map<string, string>
   });
 }
 
-/**
- * Improve BibTeX citation keys to human-friendly author–year keys,
- * and rewrite the article's MyST/pandoc citations to match.
- */
 async function improveCitationTags(
   options: RunImproveCitationTagsOptions,
 ): Promise<void> {
@@ -284,28 +259,16 @@ async function improveCitationTags(
   if (bibChanged) writeUtf8(bibPath, newBibText, options.dryRun);
   if (articleChanged) writeUtf8(articlePath, newArticleMd, options.dryRun);
 
-  process.stdout.write(
-    [
-      'Done.',
-      `- Bib:     ${path.relative(options.cwd, bibPath)} (${entries.length} entries)`,
-      `- Article: ${path.relative(options.cwd, articlePath)}`,
-      bibChanged ? '- Bib:     updated keys' : '- Bib:     no changes',
-      articleChanged ? '- Article: updated citations' : '- Article: no changes',
-      options.dryRun ? '(dry-run: no files written)' : null,
-    ]
-      .filter(Boolean)
-      .join('\n') + '\n',
-  );
+  logStep([
+    'Done.',
+    `${entries.length} bib entries — ${bibChanged || articleChanged ? 'citekeys updated' : 'no changes'}`,
+    options.dryRun ? '(dry-run)' : null,
+  ]);
 }
 
-/**
- * Rename BibTeX citekeys to author–year form and rewrite matching `@key`
- * citations in `article.md`.
- */
 export const improveCitationTagsStep: PipelineStep = {
   id: 'improveCitationTags',
   label: 'Improve citekeys to author–year',
-  inputs: ['markdown', 'bibtex'],
   when: whenReferencesBib,
   run: async (ctx) => {
     const o = stepOpts(ctx);

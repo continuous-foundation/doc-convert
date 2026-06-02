@@ -1,5 +1,9 @@
 import type { Ruleset } from '../engine/types.js';
-import { markdownBodySteps } from '../steps/common/index.js';
+import {
+  enrichAffiliationsRorStep,
+  improveCitationTagsStep,
+  initMystConfigStep,
+} from '../steps/common/index.js';
 import {
   cleanPandocArtifactsStep,
   copyDocxDependenciesStep,
@@ -14,12 +18,11 @@ import {
 } from '../steps/docx/index.js';
 
 export const docxRuleset: Ruleset = {
-  id: 'docx',
-  label: 'DOCX → Markdown via Pandoc, then plain Markdown pipeline',
+  label: 'DOCX → MyST',
   steps: [
     pandocDocxToMdStep,
     copyDocxDependenciesStep,
-    ...markdownBodySteps.slice(0, 1),
+    initMystConfigStep,
     extractDocxFrontmatterStep,
     extractDocxPartsStep,
     cleanPandocArtifactsStep,
@@ -28,6 +31,7 @@ export const docxRuleset: Ruleset = {
     improveDocxCrossrefsStep,
     improveDocxMathStep,
     improveDocxCitationsStep,
-    ...markdownBodySteps.slice(1),
+    improveCitationTagsStep,
+    enrichAffiliationsRorStep,
   ],
 };

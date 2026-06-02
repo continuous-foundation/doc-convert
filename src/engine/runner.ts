@@ -1,3 +1,4 @@
+import { plannedStepDisposition } from '../config/doc-convert-config.js';
 import type { PipelineStep, RunContext, Ruleset, StepDisposition } from './types.js';
 import { fileExists } from './context.js';
 
@@ -10,14 +11,18 @@ export async function runRuleset(ruleset: Ruleset, ctx: RunContext): Promise<voi
   const steps = ruleset.steps;
   const total = steps.length;
 
-  console.log(`\nRuleset: ${ruleset.label} (${ruleset.id})`);
+  console.log(`\nPipeline: ${ruleset.label}`);
   console.log(`Input:   ${ctx.inputAbs}`);
-  console.log(`Workdir: ${ctx.workdirAbs}\n`);
+  console.log(`Workdir: ${ctx.workdirAbs}`);
+  if (ctx.stepConfig) {
+    console.log(`Config:  ${process.cwd()}/doc-convert.yml`);
+  }
+  console.log('');
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const n = i + 1;
-    const disposition = step.when ? step.when(ctx) : 'run';
+    const disposition = plannedStepDisposition(step, ctx, ctx.stepConfig);
 
     if (disposition === 'skip') {
       console.log(`=== ${n}/${total} ${step.label} ===\n(skipped)\n`);
@@ -33,22 +38,16 @@ export async function runRuleset(ruleset: Ruleset, ctx: RunContext): Promise<voi
     await step.run(ctx);
     console.log('');
 
-    if (
-      ctx.options.dryRun &&
-      !fileExists(ctx.workdirAbs) &&
-      (step.id === 'prepareWorkdir' || step.id === 'pandocDocxToMd')
-    ) {
+    if (ctx.options.dryRun && !fileExists(ctx.workdirAbs) && step.id === 'pandocDocxToMd') {
       console.log(
-        '(dry-run: workdir not created, so remaining steps are skipped. Re-run without --dry-run.)\n',
+        '(dry-run: workdir not created; re-run without --dry-run to execute remaining steps.)\n',
       );
       return;
     }
   }
 
   if (ctx.options.dryRun && !fileExists(ctx.workdirAbs)) {
-    console.log(
-      '(dry-run: workdir was not created; subsequent steps that need it were skipped or no-ops.)\n',
-    );
+    console.log('(dry-run: workdir was not created.)\n');
     return;
   }
 
@@ -56,12 +55,15 @@ export async function runRuleset(ruleset: Ruleset, ctx: RunContext): Promise<voi
 }
 
 export function listRulesetSteps(ruleset: Ruleset, ctx: RunContext): void {
-  console.log(`\nRuleset: ${ruleset.label} (${ruleset.id})`);
-  console.log(`Input:   ${ctx.inputAbs}\n`);
-  ruleset.steps.forEach((step, i) => {
-    const d = step.when ? step.when(ctx) : 'run';
-    const inputs = step.inputs.join(', ');
-    console.log(`  ${i + 1}. [${dispositionLabel(d)}] ${step.id} — ${step.label} (${inputs})`);
+  console.log(`\nPipeline: ${ruleset.label}`);
+  console.log(`Input:   ${ctx.inputAbs}`);
+  if (ctx.stepConfig) {
+    console.log(`Config:  ${process.cwd()}/doc-convert.yml`);
+  }
+  console.log('');
+  ruleset.steps.forEach((step: PipelineStep, i) => {
+    const d = plannedStepDisposition(step, ctx, ctx.stepConfig);
+    console.log(`  ${i + 1}. [${dispositionLabel(d)}] ${step.id} — ${step.label}`);
   });
   console.log('');
 }

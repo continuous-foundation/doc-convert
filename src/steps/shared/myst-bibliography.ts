@@ -1,25 +1,23 @@
-/** Ensure `project.bibliography` in myst.yml lists a BibTeX file. */
-export function ensureMystBibliography(mystYaml: string, bibPathRelativeToMyst: string): string {
-  const lines = mystYaml.split('\n');
-  const projectIdx = lines.findIndex((l) => /^\s*project:\s*$/.test(l));
-  if (projectIdx === -1) return mystYaml;
+import { openMystProject, closeMystProject } from './myst-yaml-project.js';
 
-  for (let i = projectIdx + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\S/.test(line)) break;
-    if (/^\s{2}bibliography:\s*$/.test(line)) {
-      let j = i + 1;
-      const existing = new Set<string>();
-      while (j < lines.length && /^\s{4}-\s+/.test(lines[j])) {
-        existing.add(lines[j].replace(/^\s{4}-\s+/, '').trim());
-        j++;
-      }
-      if (existing.has(bibPathRelativeToMyst)) return mystYaml;
-      lines.splice(j, 0, `    - ${bibPathRelativeToMyst}`);
-      return lines.join('\n');
+export function ensureMystBibliography(mystYaml: string, bibPathRelativeToMyst: string): string {
+  const block = openMystProject(mystYaml);
+
+  for (let i = 0; i < block.projectLines.length; i++) {
+    const line = block.projectLines[i];
+    if (!/^\s{2}bibliography:\s*$/.test(line)) continue;
+
+    let j = i + 1;
+    const existing = new Set<string>();
+    while (j < block.projectLines.length && /^\s{4}-\s+/.test(block.projectLines[j])) {
+      existing.add(block.projectLines[j].replace(/^\s{4}-\s+/, '').trim());
+      j++;
     }
+    if (existing.has(bibPathRelativeToMyst)) return mystYaml;
+    block.projectLines.splice(j, 0, `    - ${bibPathRelativeToMyst}`);
+    return closeMystProject(block);
   }
 
-  lines.splice(projectIdx + 1, 0, `  bibliography:`, `    - ${bibPathRelativeToMyst}`);
-  return lines.join('\n');
+  block.projectLines.unshift(`  bibliography:`, `    - ${bibPathRelativeToMyst}`);
+  return closeMystProject(block);
 }

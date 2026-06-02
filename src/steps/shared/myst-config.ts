@@ -1,15 +1,17 @@
 import path from 'node:path';
 import { fileExists } from '../../engine/context.js';
+import { readUtf8 } from './fs.js';
 
-/**
- * Resolve project config path: prefer myst.yml, fall back to legacy curvenote.yml.
- */
 export function resolveProjectConfigPath(cwd: string, mystArg = 'myst.yml'): string {
-  const abs = path.resolve(cwd, mystArg);
-  if (fileExists(abs)) return abs;
-  if (mystArg === 'myst.yml') {
-    const legacy = path.resolve(cwd, 'curvenote.yml');
-    if (fileExists(legacy)) return legacy;
+  return path.resolve(cwd, mystArg);
+}
+
+export function readProjectIdFromConfig(configPath: string): string | null {
+  if (!fileExists(configPath)) return null;
+  try {
+    const m = readUtf8(configPath).match(/^\s*id:\s*([^\s#]+)\s*$/m);
+    return m ? m[1] : null;
+  } catch {
+    return null;
   }
-  return abs;
 }

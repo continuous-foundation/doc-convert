@@ -1,19 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
 
 const DEFAULT_ARTICLE = 'article.md';
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
 
 function collectLabels(content: string): Map<string, string> {
   const labels = new Map<string, string>();
@@ -51,6 +42,7 @@ function isSupplementaryRef(match: string, num: string): boolean {
 }
 
 function processBody(body: string): { body: string; replacements: number } {
+  // Prefer labels already emitted by figure/table conversion to keep casing stable.
   const labels = collectLabels(body);
   let replacements = 0;
   let result = body;
@@ -137,7 +129,6 @@ async function improveDocxCrossrefs(options: {
 export const improveDocxCrossrefsStep: PipelineStep = {
   id: 'improveDocxCrossrefs',
   label: 'Wire DOCX figure/table cross-references',
-  inputs: ['markdown'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await improveDocxCrossrefs({ article: 'article.md', dryRun: o.dryRun, cwd: o.cwd });

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ConvertOptions, RunContext, RulesetId } from './types.js';
+import { loadDocConvertConfig } from '../config/doc-convert-config.js';
+import { docxRuleset } from '../rulesets/docx.js';
+import type { ConvertOptions, RunContext } from './types.js';
 
 const DEFAULT_WORKDIR = '_improved';
 
@@ -17,36 +19,30 @@ export function resolveInputPath(input: string): string {
   return path.resolve(process.cwd(), input);
 }
 
-export function buildRunContext(
-  rulesetId: RulesetId,
-  inputAbs: string,
-  options: ConvertOptions,
-): RunContext {
+export function buildRunContext(inputAbs: string, options: ConvertOptions): RunContext {
   const projectRoot = path.resolve(options.projectRoot ?? path.dirname(inputAbs));
   const workdir = options.workdir ?? DEFAULT_WORKDIR;
   const workdirAbs = path.isAbsolute(workdir)
     ? workdir
     : path.resolve(projectRoot, workdir);
 
+  const stepConfig = loadDocConvertConfig(process.cwd(), docxRuleset);
+
   return {
-    rulesetId,
-    inputPath: inputAbs,
     inputAbs,
     projectRoot,
     workdir,
     workdirAbs,
     articleMd: path.join(workdirAbs, 'article.md'),
-    articleIpynb: path.join(workdirAbs, 'article.ipynb'),
     mystYml: path.join(workdirAbs, 'myst.yml'),
     options,
-    scriptsDir: path.join(projectRoot, 'script'),
+    stepConfig,
   };
 }
 
 export function parseConvertOptions(opts: {
   dryRun?: boolean;
   workdir?: string;
-  orcidLookup?: boolean;
   rorLookup?: boolean;
   noRorLookup?: boolean;
   rorMinScore?: string;
@@ -60,9 +56,17 @@ export function parseConvertOptions(opts: {
   return {
     dryRun: Boolean(opts.dryRun),
     workdir: opts.workdir ?? DEFAULT_WORKDIR,
-    orcidLookup: Boolean(opts.orcidLookup),
     rorLookup: opts.noRorLookup ? false : opts.rorLookup !== false,
     rorMinScore,
     projectRoot: opts.projectRoot,
   };
+}
+
+export function assertDocxInput(inputAbs: string): void {
+  const ext = path.extname(inputAbs).toLowerCase();
+  if (ext !== '.docx') {
+    throw new Error(
+      `Unsupported input "${path.basename(inputAbs)}". doc-convert only accepts .docx files.`,
+    );
+  }
 }

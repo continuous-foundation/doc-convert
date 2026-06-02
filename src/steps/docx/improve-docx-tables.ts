@@ -1,7 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
 
 const DEFAULT_ARTICLE = 'article.md';
@@ -17,15 +17,6 @@ interface TableBlock {
   label: string;
   caption: string;
   tableBody: string;
-}
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
 }
 
 function tableLabel(supplementary: string | undefined, numPart: string, custom?: string): string {
@@ -134,6 +125,7 @@ function findTableBlocks(lines: string[]): TableBlock[] {
 
     const tableS = lines[i]?.trim().match(TABLE_S_LINE);
     if (tableS) {
+      // Pandoc can drop supplementary grids but leave the heading behind.
       blocks.push({
         start: i,
         end: i,
@@ -208,6 +200,7 @@ function processBody(bodyLines: string[]): { lines: string[]; count: number } {
   const blocks = findTableBlocks(bodyLines);
   if (!blocks.length) return { lines: bodyLines, count: 0 };
 
+  // Replace from the bottom so earlier indices stay valid.
   blocks.sort((a, b) => b.start - a.start);
   const out = [...bodyLines];
   for (const block of blocks) {
@@ -239,7 +232,6 @@ async function improveDocxTables(options: {
 export const improveDocxTablesStep: PipelineStep = {
   id: 'improveDocxTables',
   label: 'Convert DOCX tables to MyST table directives',
-  inputs: ['markdown'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await improveDocxTables({ article: 'article.md', dryRun: o.dryRun, cwd: o.cwd });

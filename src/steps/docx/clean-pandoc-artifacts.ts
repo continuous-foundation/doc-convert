@@ -1,19 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
 
 const DEFAULT_ARTICLE = 'article.md';
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
 
 function cleanLine(line: string): string {
   let s = line;
@@ -169,7 +160,6 @@ async function cleanPandocArtifacts(options: {
 export const cleanPandocArtifactsStep: PipelineStep = {
   id: 'cleanPandocArtifacts',
   label: 'Clean Pandoc conversion artifacts',
-  inputs: ['markdown'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await cleanPandocArtifacts({ article: 'article.md', dryRun: o.dryRun, cwd: o.cwd });

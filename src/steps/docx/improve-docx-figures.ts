@@ -1,7 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
 
 const DEFAULT_ARTICLE = 'article.md';
@@ -39,15 +39,6 @@ interface FigureBlock {
   imagePath: string;
   label: string;
   caption: string;
-}
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
 }
 
 function figLabelFromMatch(supplementary: string | undefined, numPart: string): string {
@@ -169,6 +160,7 @@ function findFigureBlocks(lines: string[]): FigureBlock[] {
       continue;
     }
 
+    // Some DOCX exports put the caption before the image; support both orders.
     const heading = captionHeadingAt(lines[i]);
     if (!heading) continue;
 
@@ -220,6 +212,7 @@ function processBody(bodyLines: string[]): { lines: string[]; count: number } {
   const blocks = findFigureBlocks(bodyLines);
   if (!blocks.length) return { lines: bodyLines, count: 0 };
 
+  // Replace from the bottom so earlier indices stay valid.
   blocks.sort((a, b) => b.start - a.start);
   const out = [...bodyLines];
   for (const block of blocks) {
@@ -251,7 +244,6 @@ async function improveDocxFigures(options: {
 export const improveDocxFiguresStep: PipelineStep = {
   id: 'improveDocxFigures',
   label: 'Wrap DOCX images in MyST figure directives',
-  inputs: ['markdown'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await improveDocxFigures({ article: 'article.md', dryRun: o.dryRun, cwd: o.cwd });

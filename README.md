@@ -1,44 +1,59 @@
-## doc-convert
+# `doc-convert` Command Line Tool
 
-Convert and improve documents into a MyST-ready project (`myst.yml`, `article.md`, assets).
+Convert Word (`.docx`) manuscripts into [MyST](https://mystmd.org/) projects suitable for JDH publishing — structured `myst.yml`, `article.md`, extracted figures, citations, and author metadata.
 
-**All pipeline logic lives in this package** (`src/steps/`). The `BHmHNQKJaSWT/script/*.ts` files remain for reference and manual testing but are no longer invoked by the CLI.
+The CLI runs a fixed pipeline (Pandoc → cleanup → figures/tables/crossrefs → citations → ROR enrichment). Example inputs for this monorepo live under [../docx-examples/](../docx-examples/); conversion quality is tracked in [../gap-analysis/](../gap-analysis/).
 
-### Entry points (rulesets)
+## Install
 
-| Command | Ruleset | Folders |
-| --- | --- | --- |
-| `doc-convert --jupytext <file.md>` | `jupytext` | `steps/common/` + `steps/jupytext/` |
-| `doc-convert <file.md>` | `markdown` | `steps/common/` |
-| `doc-convert <file.docx>` | `docx` | `steps/docx/` + `steps/common/` |
-
-### Source layout
-
-```
-doc-convert/src/
-  commands/              CLI (convert)
-  engine/                runner, workdir, step context
-  rulesets/              compose steps per entry point
-  steps/                 self-contained pipeline steps
-    common/              shared steps (one file each)
-    jupytext/            notebook / region steps
-    docx/                Pandoc bootstrap
-    shared/              when guards, myst-config helpers
-```
-
-### Development
+You need [Bun](https://bun.sh/) and [Pandoc](https://pandoc.org/installing.html) on your `PATH`.
 
 ```bash
 cd doc-convert
 bun install
-bun run compile
-bun src/index.ts --jupytext ../BHmHNQKJaSWT/article.md --list-steps --project-root ../BHmHNQKJaSWT
 bun run build
 ```
 
-### Article repo
+Optional: link the CLI globally (`bun link` after build).
+
+## Quick start
+
+Convert one manuscript (writes to `_improved/` under the project root):
 
 ```bash
-cd ../BHmHNQKJaSWT
-npm run improve   # doc-convert --jupytext article.md
+bun src/index.ts path/to/manuscript.docx --project-root path/to/project --workdir _improved
 ```
+
+From the monorepo root, run all bundled examples:
+
+```bash
+../scripts/convert-docx-examples.sh
+```
+
+List all 13 pipeline steps with planned `[run]` / `[skip]` / `[warn-skip]` dispositions (no workdir, no Pandoc):
+
+```bash
+bun src/index.ts path/to/manuscript.docx --list-steps
+```
+
+Optional per-directory pipeline config — run from the project directory where you convert:
+
+```bash
+cd path/to/project
+bun ../../doc-convert/src/index.ts configure
+bun ../../doc-convert/src/index.ts manuscript.docx --list-steps   # preview after edits
+```
+
+## Documentation
+
+Full author guide, CLI reference, and pipeline details: **[docs/](docs/)** ([guide](docs/guide/index.md), [reference](docs/reference/cli.md)).
+
+Preview the docs site locally:
+
+```bash
+bun run docs:start
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

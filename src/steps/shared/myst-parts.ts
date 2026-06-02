@@ -1,24 +1,6 @@
-/**
- * Shared helpers for writing MyST document parts into page YAML frontmatter.
- * Used by jupytext region extraction and (future) heading-based extraction.
- */
-
-/**
- * Known MyST "document parts" (including aliases).
- *
- * Source: https://mystmd.org/guide/document-parts#known-document-parts
- */
 export const KNOWN_MYST_PARTS = new Set<string>([
   'abstract',
-  'summary',
-  'plain_language_summary',
-  'lay_summary',
-  'keypoints',
-  'dedication',
-  'epigraph',
-  'quote',
-  'data_availability',
-  'availability',
+  'highlights',
   'acknowledgments',
   'ack',
   'acknowledgements',
@@ -137,7 +119,6 @@ function yamlBlockScalarLines(
   return [`${baseIndent}${key}: |`, ...lines.map((l) => `${contentIndent}${l}`)];
 }
 
-/** Merge extracted parts into page frontmatter lines (mutates a copy via return). */
 export function applyPartsToFrontmatter(
   fmLines: string[],
   knownParts: Record<string, string>,
@@ -171,7 +152,6 @@ export function applyPartsToFrontmatter(
   fmLines.splice(partsEnd, 0, ...partBlocks);
 }
 
-/** Remove line intervals from a markdown body (e.g. stripped region blocks). */
 export function removeBodyLineIntervals(
   bodyLines: string[],
   intervals: Array<{ start: number; end: number }>,
@@ -199,7 +179,6 @@ export function removeBodyLineIntervals(
   return out;
 }
 
-/** Rebuild `article.md` with updated frontmatter parts and body lines. */
 export function assembleArticleWithParts(
   hasFrontmatter: boolean,
   fmLines: string[],

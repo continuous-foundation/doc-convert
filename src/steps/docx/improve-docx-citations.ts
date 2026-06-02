@@ -14,7 +14,6 @@ function whenDocxCitations(ctx: { workdirAbs: string }): StepDisposition {
 export const improveDocxCitationsStep: PipelineStep = {
   id: 'improveDocxCitations',
   label: 'Normalize DOCX citations to BibTeX + MyST cites',
-  inputs: ['markdown', 'bibtex', 'myst'],
   when: whenDocxCitations,
   run: async (ctx) => {
     const o = stepOpts(ctx);

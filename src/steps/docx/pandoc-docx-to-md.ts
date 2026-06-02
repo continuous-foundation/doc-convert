@@ -8,11 +8,9 @@ function pandocAvailable(): boolean {
   return res.status === 0;
 }
 
-/** Convert the entry DOCX to markdown (`article.md`) via Pandoc. */
 export const pandocDocxToMdStep: PipelineStep = {
   id: 'pandocDocxToMd',
   label: 'Convert DOCX to Markdown via Pandoc',
-  inputs: ['docx'],
   run: async (ctx) => {
     if (!pandocAvailable()) {
       console.error(

@@ -1,9 +1,18 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
+import { logStep } from '../../engine/step-log.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
+import { stripMarkdownInline } from '../shared/markdown-inline.js';
+import {
+  closeMystProject,
+  openMystProject,
+  prependProjectLines,
+  removeProjectKey,
+} from '../shared/myst-yaml-project.js';
 import { resolveProjectConfigPath } from '../shared/myst-config.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
+import { yamlQuote } from '../shared/yaml-scalar.js';
 
 const DEFAULT_ARTICLE = 'article.md';
 const DEFAULT_MYST = 'myst.yml';
@@ -30,24 +39,6 @@ interface RunExtractDocxFrontmatterOptions {
   myst?: string;
   dryRun: boolean;
   cwd: string;
-}
-
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
-
-function stripMarkdownInline(s: string): string {
-  return s
-    .replace(/\*\*/g, '')
-    .replace(/\[(.+?)\]\([^\)]*\)/g, '$1')
-    .replace(/\{[^}]+\}/g, '')
-    .replace(/\^+/g, '')
-    .trim();
 }
 
 function isSectionStart(line: string): boolean {
@@ -386,75 +377,33 @@ function parseDocxHeader(md: string): ExtractedDocxFrontmatter | null {
   return null;
 }
 
-function yamlQuote(s: string): string {
-  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
 function updateMystProjectFrontmatter(
   mystYaml: string,
   extracted: ExtractedDocxFrontmatter,
 ): string {
-  const lines = mystYaml.split('\n');
-  const projectIdx = lines.findIndex((l) => /^\s*project:\s*$/.test(l));
-  if (projectIdx === -1) throw new Error('Project config has no `project:` block');
-
-  let projectEnd = lines.length;
-  for (let i = projectIdx + 1; i < lines.length; i++) {
-    if (/^\S/.test(lines[i])) {
-      projectEnd = i;
-      break;
-    }
-  }
-
-  const projectLines = lines.slice(projectIdx + 1, projectEnd);
-
-  function removeKeyBlock(key: string): void {
-    const keyRe = new RegExp(`^\\s{2}${key}:\\s*(.*)$`);
-    for (let i = 0; i < projectLines.length; i++) {
-      if (!keyRe.test(projectLines[i])) continue;
-      const isBlock = /^\s{2}\w+:\s*$/.test(projectLines[i]);
-      if (!isBlock) {
-        projectLines.splice(i, 1);
-        return;
-      }
-      let j = i + 1;
-      while (j < projectLines.length && /^\s{4,}\S/.test(projectLines[j])) j++;
-      projectLines.splice(i, j - i);
-      return;
-    }
-  }
-
-  function insertAfterProjectStart(blockLines: string[]): void {
-    projectLines.unshift(...blockLines);
-  }
+  const block = openMystProject(mystYaml);
 
   if (extracted.title) {
-    removeKeyBlock('title');
-    insertAfterProjectStart([`  title: ${yamlQuote(extracted.title)}`]);
+    removeProjectKey(block.projectLines, 'title');
+    prependProjectLines(block.projectLines, [`  title: ${yamlQuote(extracted.title)}`]);
   }
 
   if (extracted.keywords.length) {
-    removeKeyBlock('keywords');
-    insertAfterProjectStart([
+    removeProjectKey(block.projectLines, 'keywords');
+    prependProjectLines(block.projectLines, [
       '  keywords:',
       ...extracted.keywords.map((k) => `    - ${yamlQuote(k)}`),
     ]);
   }
 
   if (extracted.authors.length) {
-    removeKeyBlock('authors');
+    removeProjectKey(block.projectLines, 'authors');
     const authorLines = ['  authors:'];
     for (const author of extracted.authors) {
       authorLines.push(`    - name: ${yamlQuote(author.name)}`);
-      if (author.corresponding) {
-        authorLines.push('      corresponding: true');
-      }
-      if (author.email) {
-        authorLines.push(`      email: ${yamlQuote(author.email)}`);
-      }
-      if (author.equalContribution) {
-        authorLines.push('      equal_contributor: true');
-      }
+      if (author.corresponding) authorLines.push('      corresponding: true');
+      if (author.email) authorLines.push(`      email: ${yamlQuote(author.email)}`);
+      if (author.equalContribution) authorLines.push('      equal_contributor: true');
       const affTexts = author.affiliationIds
         .map((id) => extracted.affiliations.get(id))
         .filter((x): x is string => Boolean(x));
@@ -465,12 +414,10 @@ function updateMystProjectFrontmatter(
         }
       }
     }
-    insertAfterProjectStart(authorLines);
+    prependProjectLines(block.projectLines, authorLines);
   }
 
-  return [...lines.slice(0, projectIdx + 1), ...projectLines, ...lines.slice(projectEnd)].join(
-    '\n',
-  );
+  return closeMystProject(block);
 }
 
 function rewriteArticleMarkdown(md: string, extracted: ExtractedDocxFrontmatter): string {
@@ -550,31 +497,17 @@ async function extractDocxFrontmatter(options: RunExtractDocxFrontmatterOptions)
   if (articleChanged) writeUtf8(articlePath, newArticleMd, options.dryRun);
   if (mystChanged) writeUtf8(mystPath, newMystYaml, options.dryRun);
 
-  process.stdout.write(
-    [
-      'Done.',
-      `- Title: ${extracted.title ?? '(none)'}`,
-      `- Authors: ${extracted.authors.length}`,
-      `- Affiliations: ${extracted.affiliations.size}`,
-      `- Keywords: ${extracted.keywords.length}`,
-      articleChanged
-        ? `- Updated: ${path.relative(cwd, articlePath)}`
-        : `- No change: ${path.relative(cwd, articlePath)}`,
-      mystChanged
-        ? `- Updated: ${path.relative(cwd, mystPath)}`
-        : `- No change: ${path.relative(cwd, mystPath)}`,
-      options.dryRun ? '(dry-run: no files written)' : null,
-    ]
-      .filter(Boolean)
-      .join('\n') + '\n',
-  );
+  logStep([
+    'Done.',
+    `title: ${extracted.title ?? '(none)'}; authors: ${extracted.authors.length}; affiliations: ${extracted.affiliations.size}`,
+    articleChanged || mystChanged ? 'updated article.md and/or myst.yml' : 'no changes',
+    options.dryRun ? '(dry-run)' : null,
+  ]);
 }
 
-/** Extract title, authors, and affiliations from Pandoc DOCX markdown into myst.yml + page frontmatter. */
 export const extractDocxFrontmatterStep: PipelineStep = {
   id: 'extractDocxFrontmatter',
   label: 'Extract DOCX title/authors/affiliations → myst.yml + page frontmatter',
-  inputs: ['markdown', 'myst', 'frontmatter'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await extractDocxFrontmatter({

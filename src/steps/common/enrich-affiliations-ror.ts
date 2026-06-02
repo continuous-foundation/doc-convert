@@ -1,8 +1,11 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
+import { logStep } from '../../engine/step-log.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
+import { findProjectChildBlock, openMystProject } from '../shared/myst-yaml-project.js';
 import { resolveProjectConfigPath } from '../shared/myst-config.js';
+import { unquoteYamlScalar, yamlQuote } from '../shared/yaml-scalar.js';
 
 const DEFAULT_MYST = 'myst.yml';
 const DEFAULT_MIN_SCORE = 0.8;
@@ -21,27 +24,6 @@ interface RorMatch {
   score: number;
 }
 
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
-
-function yamlQuote(s: string): string {
-  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function unquoteYamlScalar(s: string): string {
-  const t = s.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
 function normalizeOrgName(s: string): string {
   return String(s)
     .toLowerCase()
@@ -51,7 +33,6 @@ function normalizeOrgName(s: string): string {
     .trim();
 }
 
-/** Derive short institution names from verbose DOCX affiliation strings. */
 function extractInstitutionQueries(affiliation: string): string[] {
   const cleaned = affiliation.replace(/\\+/g, ' ').replace(/\s+/g, ' ').trim();
   const segments = cleaned
@@ -213,37 +194,20 @@ async function enrichMystAuthorsAffiliations(
   mystYaml: string,
   opts: { rorLookup: boolean; minScore: number },
 ): Promise<{ updatedYaml: string; changes: number }> {
-  const lines = mystYaml.split('\n');
-
-  const projectIdx = lines.findIndex((l) => /^\s*project:\s*$/.test(l));
-  if (projectIdx === -1) throw new Error('Project config has no `project:` block');
-
-  let projectEnd = lines.length;
-  for (let i = projectIdx + 1; i < lines.length; i++) {
-    if (/^\S/.test(lines[i])) {
-      projectEnd = i;
-      break;
-    }
-  }
-
-  let authorsIdx = -1;
-  for (let i = projectIdx + 1; i < projectEnd; i++) {
-    if (/^\s{2}authors:\s*$/.test(lines[i])) {
-      authorsIdx = i;
-      break;
-    }
-  }
-  if (authorsIdx === -1) {
+  const block = openMystProject(mystYaml);
+  const authorsBlock = findProjectChildBlock(
+    block.lines,
+    block.projectIdx,
+    block.projectEnd,
+    'authors',
+  );
+  if (!authorsBlock) {
     return { updatedYaml: mystYaml, changes: 0 };
   }
 
-  let authorsEnd = projectEnd;
-  for (let i = authorsIdx + 1; i < projectEnd; i++) {
-    if (/^\s{2}[A-Za-z0-9_-]+:\s*/.test(lines[i])) {
-      authorsEnd = i;
-      break;
-    }
-  }
+  const lines = block.lines;
+  const authorsIdx = authorsBlock.start;
+  const authorsEnd = authorsBlock.end;
 
   let changes = 0;
   const cache = new Map<string, RorMatch | null>();
@@ -315,10 +279,6 @@ async function enrichMystAuthorsAffiliations(
   return { updatedYaml: out.join('\n'), changes };
 }
 
-/**
- * Enrich author affiliation strings in the project config using ROR (Research Organization Registry).
- * Resolves plain-string affiliations to MyST affiliation objects with `institution` and `ror` fields.
- */
 async function enrichAffiliationsRor(
   options: RunEnrichAffiliationsRorOptions,
 ): Promise<void> {
@@ -341,29 +301,17 @@ async function enrichAffiliationsRor(
 
   if (changed) writeUtf8(mystPath, updatedYaml, options.dryRun);
 
-  process.stdout.write(
-    [
-      'Done.',
-      `- config: ${path.relative(cwd, mystPath)}`,
-      `- ROR lookup: ${options.rorLookup ? 'enabled' : 'disabled'}`,
-      `- minScore: ${minScore}`,
-      `- affiliation enrichments applied: ${changes}`,
-      changed ? '- config updated' : '- no changes',
-      options.dryRun ? '(dry-run: no files written)' : null,
-    ]
-      .filter(Boolean)
-      .join('\n') + '\n',
-  );
+  logStep([
+    'Done.',
+    `${path.relative(cwd, mystPath)}: ${changes} affiliation(s) enriched (ROR ${options.rorLookup ? 'on' : 'off'}, minScore ${minScore})`,
+    changed ? undefined : 'no changes',
+    options.dryRun ? '(dry-run)' : null,
+  ]);
 }
 
-/**
- * Resolve plain-string author affiliations in `myst.yml` to ROR-backed
- * institution objects (when `--ror-lookup` is enabled).
- */
 export const enrichAffiliationsRorStep: PipelineStep = {
   id: 'enrichAffiliationsRor',
   label: 'Enrich affiliations via ROR',
-  inputs: ['myst'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await enrichAffiliationsRor({

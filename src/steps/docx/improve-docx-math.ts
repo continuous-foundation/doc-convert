@@ -1,7 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { PipelineStep } from '../../engine/types.js';
 import { stepOpts } from '../../engine/step-context.js';
+import { readUtf8, writeUtf8 } from '../shared/fs.js';
 import { splitArticleFrontmatter, assembleArticleWithParts } from '../shared/myst-parts.js';
 import {
   buildMarkdownSkipRanges,
@@ -10,16 +10,8 @@ import {
 
 const DEFAULT_ARTICLE = 'article.md';
 
-function readUtf8(p: string): string {
-  return fs.readFileSync(p, 'utf8');
-}
-
-function writeUtf8(p: string, content: string, dryRun: boolean): void {
-  if (dryRun) return;
-  fs.writeFileSync(p, content, 'utf8');
-}
-
 function wrapDisplayMathBlocks(body: string): { body: string; count: number } {
+  // Do not relabel math already inside directives or fenced examples.
   const skip = buildMarkdownSkipRanges(body);
   const displayRe = /\$\$([\s\S]*?)\$\$/g;
   let eqNum = 0;
@@ -81,7 +73,6 @@ async function improveDocxMath(options: {
 export const improveDocxMathStep: PipelineStep = {
   id: 'improveDocxMath',
   label: 'Normalize DOCX math markup',
-  inputs: ['markdown'],
   run: async (ctx) => {
     const o = stepOpts(ctx);
     await improveDocxMath({ article: 'article.md', dryRun: o.dryRun, cwd: o.cwd });

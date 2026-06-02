@@ -1,29 +1,32 @@
 import path from 'node:path';
 import type { Command } from 'commander';
 import { CliError } from '../cli/errors.js';
-import { buildRunContext, fileExists, parseConvertOptions, resolveInputPath } from '../engine/context.js';
+import {
+  assertDocxInput,
+  buildRunContext,
+  fileExists,
+  parseConvertOptions,
+  resolveInputPath,
+} from '../engine/context.js';
 import { listRulesetSteps, runRuleset } from '../engine/runner.js';
-import { getRuleset, inferRulesetId } from '../rulesets/index.js';
+import { docxRuleset } from '../rulesets/docx.js';
 
 export function addConvertCommand(program: Command): void {
   program
-    .argument('<input>', 'Input file (.md with optional --jupytext, or .docx)')
-    .option('--jupytext', 'Treat input as Jupytext-exported markdown (full pipeline)')
+    .argument('<input>', 'Input Word document (.docx)')
     .option('--workdir <path>', 'Output workdir name or path', '_improved')
-    .option('--project-root <path>', 'Article repo root for scripts and assets (default: input directory)')
+    .option('--project-root <path>', 'Project root for optional assets (default: input directory)')
     .option('-d, --dry-run', 'Do not write files')
-    .option('--orcid-lookup', 'Enable ORCID enrichment (extract-jupytext-frontmatter step)')
     .option('--ror-lookup', 'Enable ROR affiliation lookups (default on)')
     .option('--no-ror-lookup', 'Disable ROR affiliation lookups')
     .option('--ror-min-score <float>', 'ROR match threshold 0..1', '0.8')
-    .option('--list-steps', 'Print planned steps for this input and exit')
+    .option('--list-steps', 'Print planned pipeline steps and exit')
     .addHelpText(
       'after',
       `
 Examples:
   $ doc-convert manuscript.docx
   $ doc-convert manuscript.docx --project-root ./article --workdir _improved
-  $ doc-convert article.md --jupytext
   $ doc-convert manuscript.docx --list-steps
 `,
     )
@@ -33,31 +36,27 @@ Examples:
         throw new CliError(`Input file not found: ${inputAbs}`);
       }
 
+      assertDocxInput(inputAbs);
+
       const options = parseConvertOptions({
         dryRun: opts.dryRun,
         workdir: opts.workdir,
-        orcidLookup: opts.orcidLookup,
         rorLookup: opts.rorLookup,
         noRorLookup: opts.noRorLookup,
         rorMinScore: opts.rorMinScore,
         projectRoot: opts.projectRoot,
       });
 
-      const rulesetId = inferRulesetId(inputAbs, Boolean(opts.jupytext));
-      const ruleset = getRuleset(rulesetId);
-      const ctx = buildRunContext(rulesetId, inputAbs, options);
+      const ctx = buildRunContext(inputAbs, options);
+      if (!opts.projectRoot) {
+        ctx.projectRoot = path.dirname(inputAbs);
+      }
 
       if (opts.listSteps) {
-        listRulesetSteps(ruleset, ctx);
+        listRulesetSteps(docxRuleset, ctx);
         return;
       }
 
-      // DOCX: project root is dirname of docx unless overridden
-      if (rulesetId === 'docx' && !opts.projectRoot) {
-        ctx.projectRoot = path.dirname(inputAbs);
-        ctx.scriptsDir = path.join(ctx.projectRoot, 'script');
-      }
-
-      await runRuleset(ruleset, ctx);
+      await runRuleset(docxRuleset, ctx);
     });
 }

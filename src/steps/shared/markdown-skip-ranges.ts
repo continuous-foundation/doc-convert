@@ -1,4 +1,3 @@
-/** Ranges in markdown that should not be transformed (directives, fences, frontmatter). */
 export interface SkipRange {
   start: number;
   end: number;
@@ -30,7 +29,6 @@ export function buildMarkdownSkipRanges(content: string): SkipRange[] {
   return ranges;
 }
 
-/** Skip ranges for body transforms that should still run inside `{figure}` fences. */
 export function buildFigureAwareSkipRanges(content: string): SkipRange[] {
   const ranges: SkipRange[] = [];
 

@@ -1,6 +1,5 @@
 import { CommanderError } from 'commander';
 
-/** User-facing CLI error (no stack trace). */
 export class CliError extends Error {
   override name = 'CliError';
 
@@ -13,7 +12,6 @@ function shouldShowStack(err: unknown): boolean {
   return process.env.DEBUG === '1' || process.env.DOC_CONVERT_DEBUG === '1';
 }
 
-/** Print a concise CLI error and exit. */
 export function handleCliFailure(err: unknown): never {
   if (err instanceof CommanderError) {
     if (err.code === 'commander.helpDisplayed' || err.code === 'commander.help') {

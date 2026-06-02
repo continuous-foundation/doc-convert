@@ -1,0 +1,33 @@
+version: 1
+project:
+  title: Document Conversion Command Line Tool
+  short_title: Document Conversion CLI
+  description: Local author guide for converting Word manuscripts to MyST-ready projects
+  toc:
+    - file: index.md
+    - file: guide/index.md
+    - children:
+        - file: reference/cli.md
+        - file: reference/configuration.md
+        - file: reference/pipeline.md
+        - file: reference/project-layout.md
+        - file: reference/outputs.md
+        - file: reference/troubleshooting.md
+      title: Reference
+  authors:
+      name: Steve Purves
+      orcid: 0000-0002-0760-5497
+      corresponding: true
+      email: steve@curvenote.com
+      affiliations:
+        - curvenote
+      url: https://curvenote.com
+      github: stevejpurves
+      bluesky: '@opensci.dev'
+      linkedin: https://www.linkedin.com/in/stevejpurves/
+      id: contributors-myst-generated-uid-0
+  affiliations:
+    - id: curvenote
+      name: curvenote
+site:
+  template: book-theme
