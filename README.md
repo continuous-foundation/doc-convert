@@ -51,3 +51,11 @@ Full author guide, CLI reference, and pipeline details: **[docs/](docs/)** ([gui
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+<p style="text-align: center; color: #aaa; padding-top: 50px">
+  Made with love by
+  <a href="https://continuous.foundation" target="_blank" style="color: #aaa">
+    Continuous Science Foundation <img src="https://cdn.curvenote.com/static/site/csf/icon.svg" style="height: 1em" />
+  </a>
+</p>
