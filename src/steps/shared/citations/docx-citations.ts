@@ -62,43 +62,93 @@ function normalizeKeyToken(s: string): string {
     .trim();
 }
 
-function parseReferenceFields(text: string): Record<string, string> {
-  const plain = text
+function stripMd(s: string): string {
+  return s
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\\([.[\]&%_#~^])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+}
 
-  const doi =
-    plain.match(/\b(?:doi:\s*)?(?:https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\S+)/i)?.[1] ??
-    plain.match(/\b(10\.\d{4,}\/\S+)/)?.[1];
-  const year =
-    plain.match(/\((\d{4})\)\.?\s*$/)?.[1] ??
-    plain.match(/\((\d{4})\)/)?.[1] ??
-    plain.match(/\b(19|20)\d{2}\b(?!.*\b(19|20)\d{2}\b)/)?.[0];
+// A token is an author name when it is one-or-more initials ("J. G.") followed
+// by a capitalized surname, e.g. "G. S. X. E. Jefferis", "Y.-J. Kim", "Á. S. Díez".
+// Consortium / project-team bylines and "et al." are also treated as authors.
+const AUTHOR_TOKEN = /^(?:\p{Lu}\.[ -]?){1,8}(?:\p{Lu}[\p{L}'’.-]*\s*)+$/u;
+function looksLikeAuthor(token: string): boolean {
+  const t = token.trim();
+  if (!t) return false;
+  if (/^et al\.?$/i.test(t)) return true;
+  if (/consortium|project team|flywire/i.test(t)) return true;
+  return AUTHOR_TOKEN.test(t);
+}
 
+// Parse a Science/AAAS-style reference: "A1, A2, …, An, Title. *Journal* **vol**, pages (year)."
+// The author list, the title, and the trailing journal/volume/pages block are each delimited by
+// markdown markers and punctuation rather than a single comma, so we anchor on those.
+function parseReferenceFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
-  const authorTitle = plain.match(/^(.+?),\s+(.+)$/);
-  if (authorTitle) {
-    fields.author = authorTitle[1].trim().replace(/\s+et\s+al\.?/i, ' and others');
-    const rest = authorTitle[2].trim();
-    const titleEnd = rest.search(/\.\s+[A-Z*]/);
-    if (titleEnd > 0) {
-      fields.title = rest.slice(0, titleEnd).trim();
-      const journalPart = rest.slice(titleEnd + 2).trim();
-      const journalMatch = journalPart.match(/^(.+?)\s+\*\*/);
-      if (journalMatch) fields.journal = journalMatch[1].trim();
-    } else {
-      fields.title = rest;
-    }
-  } else if (plain) {
-    fields.note = plain.slice(0, 2000);
+
+  const doi = text.match(
+    /\b(?:doi:\s*)?(?:https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,}\/\S+)/i,
+  )?.[1];
+
+  // Journal (italic) + volume (bold) + pages, ending at the (year) marker.
+  const jvp = text.match(
+    /\*([^*]+)\*\s+\*\*([^*]+)\*\*,?\s*([^*()]*?)\s*\(\s*(\d{4})\s*\)/,
+  );
+  let headEnd = text.length;
+  let year: string | undefined;
+  if (jvp) {
+    fields.journal = stripMd(jvp[1]);
+    fields.volume = stripMd(jvp[2]);
+    const pages = stripMd(jvp[3]).replace(/[.,;]\s*$/, '');
+    if (pages) fields.pages = pages;
+    year = jvp[4];
+    headEnd = jvp.index!;
+  }
+  if (!year) {
+    const years = [...text.matchAll(/\((\d{4})\)/g)].map((m) => m[1]);
+    year = years.length ? years[years.length - 1] : text.match(/\b(?:19|20)\d{2}\b/)?.[0];
+    const yp = text.search(/\(\s*\d{4}\s*\)/);
+    if (yp > 0) headEnd = Math.min(headEnd, yp);
+  }
+
+  // Everything before the journal/year is the author list followed by the title.
+  const head = text.slice(0, headEnd).replace(/\\?\[Preprint\\?\]/gi, '');
+  const tokens = stripMd(head)
+    .split(/,\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  let lastAuthor = -1;
+  for (let i = 0; i < tokens.length; i++) {
+    if (looksLikeAuthor(tokens[i])) lastAuthor = i;
+  }
+
+  if (lastAuthor >= 0) {
+    const authors = tokens
+      .slice(0, lastAuthor + 1)
+      .map((t) => (/^et al\.?$/i.test(t) ? 'others' : t))
+      .filter(Boolean);
+    fields.author = authors.join(' and ');
+    const title = tokens
+      .slice(lastAuthor + 1)
+      .join(', ')
+      .replace(/\.\s*$/, '')
+      .trim();
+    if (title) fields.title = title;
+  } else if (tokens.length) {
+    fields.title = tokens.join(', ').replace(/\.\s*$/, '').trim();
   }
 
   if (year) fields.year = year;
-  if (doi) fields.doi = doi.replace(/\.$/, '');
-  if (!fields.author && !fields.title && plain) fields.note = plain.slice(0, 2000);
+  if (doi) fields.doi = doi.replace(/[).]+$/, '');
+  if (!fields.author && !fields.title) {
+    const plain = stripMd(text).slice(0, 2000);
+    if (plain) fields.note = plain;
+  }
   return fields;
 }
 
@@ -298,6 +348,18 @@ function rewriteSuperscript(content: string, maps: CitationMaps): string {
 
 function rewriteItalicParen(content: string, maps: CitationMaps): string {
   let result = content.replace(
+    /\(\*(\d+)\*\s*--\s*\*(\d+)\*\)/g,
+    (_m, a: string, b: string) => {
+      const lo = Number(a);
+      const hi = Number(b);
+      const nums: number[] = [];
+      for (let n = Math.min(lo, hi); n <= Math.max(lo, hi); n++) nums.push(n);
+      const keys = keysForNumbers(nums, maps);
+      return keys.length ? formatCiteCluster(keys) : _m;
+    },
+  );
+
+  result = result.replace(
     /\(\*(\d+)\*\s+and\s+\*(\d+)\*\)/g,
     (_m, a: string, b: string) => {
       const keys = keysForNumbers([Number(a), Number(b)], maps);
