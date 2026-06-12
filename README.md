@@ -1,6 +1,6 @@
 # `doc-convert` Command Line Tool
 
-Convert Word (`.docx`) manuscripts into [MyST](https://mystmd.org/) projects suitable for JDH publishing — structured `myst.yml`, `article.md`, extracted figures, citations, and author metadata.
+Convert Word (`.docx`) manuscripts into [MyST](https://mystmd.org/) projects suitable for publishing — structured `myst.yml`, `article.md`, extracted figures, citations, and author metadata.
 
 The CLI runs a fixed pipeline (Pandoc → cleanup → figures/tables/crossrefs → citations → ROR enrichment). Example inputs for this monorepo live under [../docx-examples/](../docx-examples/); conversion quality is tracked in [../gap-analysis/](../gap-analysis/).
 
